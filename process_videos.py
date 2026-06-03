@@ -20,7 +20,7 @@ import csv
 import sys
 from pathlib import Path
 
-from video_intel import config, store, export_excel, export_guide, export_map
+from video_intel import config, store, export_excel, export_guide, export_map, export_share
 from video_intel.platforms import detect_platform
 
 
@@ -151,6 +151,8 @@ def main():
     ap.add_argument("--export-only", action="store_true", help="only rebuild Excel + guide")
     ap.add_argument("--demo", action="store_true", help="seed sample data (no network)")
     ap.add_argument("--no-geocode", action="store_true", help="skip map geocoding")
+    ap.add_argument("--share", action="store_true",
+                    help="also build the publishable docs/ site (shared=1 videos, OSM map)")
     ap.add_argument("--guide-title", default=config.GUIDE_TITLE)
     args = ap.parse_args()
 
@@ -197,6 +199,9 @@ def main():
     print(f"  Excel  : {xlsx}")
     print(f"  Guide  : {guide}")
     print(f"  Map    : {map_path}  ({mapped} pinned, {mprov})")
+    if args.share:
+        info = export_share.build(title=args.guide_title)
+        print(f"  Shared : {info['dir']}  (index.html + video_map.html, {info['videos']} videos, OSM)")
     print(f"  Library: {len(rows)} videos, {sum(1 for r in rows if r.get('needs_review'))} need review, {len(errs)} errors logged.")
 
 

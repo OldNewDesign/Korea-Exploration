@@ -10,9 +10,11 @@ and download the guide, map, and Excel. Uses the same backend modules, so the
 SQLite library is shared with `process_videos.py`.
 """
 import os
+import io
+import zipfile
 import streamlit as st
 
-from video_intel import config, store, transcribe, export_excel, export_guide, export_map
+from video_intel import config, store, transcribe, export_excel, export_guide, export_map, export_share
 import process_videos as pv
 
 st.set_page_config(page_title="Video Intelligence", page_icon="🎬", layout="wide")
@@ -99,13 +101,16 @@ st.caption("Paste links → transcribe → translate → categorize → guide, m
 lib = store.all_videos()
 errs = store.all_errors()
 geo = sum(1 for v in lib if v.get("lat") not in (None, ""))
-c1, c2, c3, c4 = st.columns(4)
+shared_n = sum(1 for v in lib if v.get("shared"))
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Videos", len(lib))
 c2.metric("Mapped", geo)
-c3.metric("Need review", sum(1 for v in lib if v.get("needs_review")))
-c4.metric("Errors", len(errs))
+c3.metric("Shared", shared_n)
+c4.metric("Need review", sum(1 for v in lib if v.get("needs_review")))
+c5.metric("Errors", len(errs))
 
-tab_proc, tab_lib, tab_map, tab_err = st.tabs(["Paste & Process", "Library", "Map & Guide", "Errors"])
+tab_proc, tab_lib, tab_map, tab_share, tab_err = st.tabs(
+    ["Paste & Process", "Library", "Map & Guide", "Share (publish)", "Errors"])
 
 
 # ----------------------------- process tab --------------------------------
@@ -215,6 +220,73 @@ with tab_map:
                                   height=820, scrolling=True)
         else:
             st.info("Build the map first.")
+
+
+# ----------------------------- share tab ----------------------------------
+with tab_share:
+    st.subheader("Publish a curated subset")
+    st.caption("Tick the videos to make public, Save, then build the site. The "
+               "shared map always uses OpenStreetMap, so no API key is ever published.")
+    if not lib:
+        st.info("No videos yet.")
+    else:
+        editor_rows = [{
+            "Share": bool(v.get("shared")),
+            "Creator": v.get("creator"), "Category": v.get("topic"),
+            "Location": v.get("location") or "", "URL": v.get("url"),
+        } for v in lib]
+        bcol1, bcol2, bcol3 = st.columns(3)
+        if bcol1.button("Select all"):
+            for v in lib:
+                store.set_shared(v["url"], True)
+            st.rerun()
+        if bcol2.button("Select none"):
+            for v in lib:
+                store.set_shared(v["url"], False)
+            st.rerun()
+        edited = st.data_editor(
+            editor_rows, hide_index=True, use_container_width=True, key="share_editor",
+            disabled=["Creator", "Category", "Location", "URL"],
+            column_config={"URL": st.column_config.LinkColumn("URL"),
+                           "Share": st.column_config.CheckboxColumn("Share", default=False)},
+        )
+        if st.button("💾 Save selection"):
+            for r in edited:
+                store.set_shared(r["URL"], r.get("Share"))
+            st.rerun()
+
+        st.divider()
+        pub_title = st.text_input("Public guide title", value=config.GUIDE_TITLE)
+        if st.button("🌐 Build shareable site (OpenStreetMap)", type="primary"):
+            if shared_n == 0:
+                st.warning("No videos marked Share yet — tick some above and Save first.")
+            else:
+                with st.spinner("Building docs/ …"):
+                    info = export_share.build(title=pub_title)
+                st.success(f"Built {info['videos']} videos ({info['mapped']} pinned) into "
+                           f"`{info['dir']}` using {info['provider']}.")
+
+        # offer a zip of docs/ for drag-and-drop hosting (Netlify, etc.)
+        if os.path.isdir(config.SHARE_DIR) and os.path.exists(os.path.join(config.SHARE_DIR, "index.html")):
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                for root, _, files in os.walk(config.SHARE_DIR):
+                    for fn in files:
+                        fp = os.path.join(root, fn)
+                        z.write(fp, os.path.relpath(fp, config.SHARE_DIR))
+            st.download_button("⬇ Download docs.zip (for Netlify/Drive)", buf.getvalue(),
+                               file_name="docs.zip", mime="application/zip")
+            with st.expander("Publish on GitHub Pages (durable link)"):
+                st.markdown(
+                    "1. Commit the new **`docs/`** folder: `git add docs && git commit -m \"publish guide\" && git push`\n"
+                    "2. On GitHub: **Settings → Pages → Source = Deploy from a branch**, "
+                    "branch **main**, folder **/docs**, Save.\n"
+                    "3. Your link appears in a minute: `https://<you>.github.io/<repo>/`\n\n"
+                    "Re-run this build and push again whenever you add spots — the link stays the same.")
+            with st.expander("Preview the shared guide"):
+                st.components.v1.html(
+                    open(os.path.join(config.SHARE_DIR, "index.html"), encoding="utf-8").read(),
+                    height=720, scrolling=True)
 
 
 # ----------------------------- errors tab ---------------------------------
