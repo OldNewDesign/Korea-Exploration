@@ -1,0 +1,231 @@
+"""
+Streamlit front-end for the Video Intelligence Pipeline.
+
+Run it from the project folder:
+    pip install streamlit
+    python -m streamlit run app.py
+
+Everything the CLI does, in a browser: paste links, watch progress, then preview
+and download the guide, map, and Excel. Uses the same backend modules, so the
+SQLite library is shared with `process_videos.py`.
+"""
+import os
+import streamlit as st
+
+from video_intel import config, store, transcribe, export_excel, export_guide, export_map
+import process_videos as pv
+
+st.set_page_config(page_title="Video Intelligence", page_icon="🎬", layout="wide")
+config.ensure_dirs()
+store.init_db()
+
+
+# ----------------------------- helpers ------------------------------------
+def parse_links(text):
+    items, seen = [], set()
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # support "url | note"
+        url = line.split("|")[0].strip()
+        for tok in line.split():
+            if tok.startswith("http"):
+                url = tok.strip()
+                break
+        if url.startswith("http") and url not in seen:
+            seen.add(url)
+            items.append({"url": url, "notes": ""})
+    return items
+
+
+def file_dl(path, label, mime):
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            st.download_button(label, f.read(), file_name=os.path.basename(path),
+                               mime=mime, use_container_width=True)
+    else:
+        st.button(label + " (not built yet)", disabled=True, use_container_width=True)
+
+
+def rebuild_exports(title, do_geocode):
+    if do_geocode:
+        pv.geocode_missing()
+    export_excel.build()
+    export_guide.build(title=title)
+    return export_map.build(title=title + " \u2014 Map")
+
+
+# ----------------------------- sidebar ------------------------------------
+with st.sidebar:
+    st.header("Settings")
+
+    key = st.text_input("Anthropic API key", type="password", value=config.ANTHROPIC_API_KEY,
+                        help="Enables translation/categorization. Without it, videos are stored raw and flagged for review.")
+    model = st.text_input("Claude model", value=config.ANALYZE_MODEL)
+    gkey = st.text_input("Google Maps API key", type="password", value=config.GOOGLE_MAPS_API_KEY,
+                        help="If set, the map renders with Google Maps and geocoding uses Google. Otherwise OpenStreetMap.")
+
+    st.divider()
+    meta_only = st.checkbox("Metadata only (skip audio + Whisper)", value=True,
+                            help="Fast, no FFmpeg needed. Uncheck to transcribe speech with Whisper.")
+    whisper_model = st.selectbox("Whisper model", ["tiny", "base", "small", "medium", "large-v3", "turbo"],
+                                 index=2, disabled=meta_only)
+    do_geocode = st.checkbox("Geocode locations for the map", value=True)
+    skip_existing = st.checkbox("Skip links already in the library", value=True)
+
+    st.divider()
+    title = st.text_input("Guide title", value=config.GUIDE_TITLE)
+    cats_text = st.text_area("Categories (one per line)", value="\n".join(config.CATEGORIES), height=180)
+
+# apply settings to the shared config (read at call time by the backend)
+config.ANTHROPIC_API_KEY = key.strip()
+config.ANALYZE_MODEL = model.strip() or config.ANALYZE_MODEL
+config.GOOGLE_MAPS_API_KEY = gkey.strip()
+config.WHISPER_MODEL = whisper_model
+cats = [c.strip() for c in cats_text.splitlines() if c.strip()]
+if cats:
+    config.CATEGORIES = cats
+# reload Whisper only if the choice changed
+if st.session_state.get("_whisper") != whisper_model:
+    transcribe._MODEL = None
+    st.session_state["_whisper"] = whisper_model
+
+
+# ----------------------------- header -------------------------------------
+st.title("🎬 Video Intelligence")
+st.caption("Paste links → transcribe → translate → categorize → guide, map & spreadsheet.")
+
+lib = store.all_videos()
+errs = store.all_errors()
+geo = sum(1 for v in lib if v.get("lat") not in (None, ""))
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Videos", len(lib))
+c2.metric("Mapped", geo)
+c3.metric("Need review", sum(1 for v in lib if v.get("needs_review")))
+c4.metric("Errors", len(errs))
+
+tab_proc, tab_lib, tab_map, tab_err = st.tabs(["Paste & Process", "Library", "Map & Guide", "Errors"])
+
+
+# ----------------------------- process tab --------------------------------
+with tab_proc:
+    if not config.ANTHROPIC_API_KEY:
+        st.info("No Anthropic key set — videos will be stored with raw captions and flagged for review. "
+                "Add a key in the sidebar for translation + smart categories.")
+    if not meta_only and config.use_google_map():
+        pass
+    text = st.text_area("Paste video URLs (one per line; `url | note` is fine)", height=180,
+                        placeholder="https://www.instagram.com/reel/...\nhttps://www.tiktok.com/@user/video/...\nhttps://youtube.com/shorts/...")
+    colA, colB = st.columns([1, 1])
+    go = colA.button("⚡ Process links", type="primary", use_container_width=True)
+    rebuild = colB.button("🔁 Rebuild exports from library", use_container_width=True,
+                          help="Re-geocode anything missing and regenerate the guide, map, and Excel.")
+
+    if go:
+        items = parse_links(text)
+        if not items:
+            st.warning("No URLs found.")
+        else:
+            prog = st.progress(0.0, text="Starting…")
+            logbox = st.empty()
+            log = []
+            ok = fail = skip = 0
+            for i, item in enumerate(items, 1):
+                url = item["url"]
+                if skip_existing and store.exists(url):
+                    skip += 1
+                    log.append(f"⏭️  skip (already stored) — {url}")
+                else:
+                    try:
+                        row = pv.process_one(item, metadata_only=meta_only)
+                        ok += 1
+                        log.append(f"✓ {row['topic']} · {row['creator']} · use {row['usefulness']}/5 — {url}")
+                    except Exception as e:
+                        fail += 1
+                        store.log_error(url, "pipeline", e)
+                        log.append(f"❌ {e}  — {url}")
+                prog.progress(i / len(items), text=f"{i}/{len(items)} processed")
+                logbox.code("\n".join(log[-15:]))
+
+            with st.spinner("Geocoding + building guide, map, and Excel…"):
+                _, mapped, mprov = rebuild_exports(title, do_geocode)
+            st.success(f"Done — {ok} processed, {skip} skipped, {fail} failed. "
+                       f"{mapped} pinned on the map ({mprov}).")
+            st.rerun()
+
+    if rebuild:
+        with st.spinner("Rebuilding…"):
+            _, mapped, mprov = rebuild_exports(title, do_geocode)
+        st.success(f"Exports rebuilt — {mapped} pinned ({mprov}).")
+        st.rerun()
+
+
+# ----------------------------- library tab --------------------------------
+with tab_lib:
+    if not lib:
+        st.info("No videos yet. Paste some links in the first tab.")
+    else:
+        view = [{
+            "Platform": v.get("platform"), "Creator": v.get("creator"),
+            "Category": v.get("topic"), "Sub": v.get("sub_category"),
+            "Location": v.get("location"), "Use": v.get("usefulness"),
+            "Action": v.get("action"), "Review": "⚠️" if v.get("needs_review") else "",
+            "Summary": v.get("summary"), "URL": v.get("url"),
+        } for v in lib]
+        plats = sorted({v.get("platform") for v in lib if v.get("platform")})
+        topics = sorted({v.get("topic") for v in lib if v.get("topic")})
+        f1, f2, f3 = st.columns(3)
+        fp = f1.multiselect("Platform", plats)
+        ft = f2.multiselect("Category", topics)
+        fq = f3.text_input("Search")
+        rows = view
+        if fp:
+            rows = [r for r in rows if r["Platform"] in fp]
+        if ft:
+            rows = [r for r in rows if r["Category"] in ft]
+        if fq:
+            ql = fq.lower()
+            rows = [r for r in rows if ql in " ".join(str(x) for x in r.values()).lower()]
+        st.dataframe(rows, use_container_width=True, hide_index=True,
+                     column_config={"URL": st.column_config.LinkColumn("URL")})
+
+
+# ----------------------------- map & guide tab ----------------------------
+with tab_map:
+    d1, d2, d3 = st.columns(3)
+    with d1:
+        file_dl(str(config.GUIDE_PATH), "⬇ Guide (HTML)", "text/html")
+    with d2:
+        file_dl(str(config.MAP_PATH), "⬇ Map (HTML)", "text/html")
+    with d3:
+        file_dl(str(config.EXCEL_PATH), "⬇ Excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    sub_guide, sub_map = st.tabs(["Guide preview", "Map preview"])
+    with sub_guide:
+        if os.path.exists(config.GUIDE_PATH):
+            st.components.v1.html(open(config.GUIDE_PATH, encoding="utf-8").read(),
+                                  height=820, scrolling=True)
+        else:
+            st.info("Build the guide first (process links or rebuild exports).")
+    with sub_map:
+        if os.path.exists(config.MAP_PATH):
+            st.components.v1.html(open(config.MAP_PATH, encoding="utf-8").read(),
+                                  height=820, scrolling=True)
+        else:
+            st.info("Build the map first.")
+
+
+# ----------------------------- errors tab ---------------------------------
+with tab_err:
+    if not errs:
+        st.success("No errors logged.")
+    else:
+        st.caption("Errors from the latest run (links that failed to download/process).")
+        st.dataframe(
+            [{"URL": e.get("url"), "Stage": e.get("stage"), "Message": e.get("message"), "When": e.get("ts")}
+             for e in errs],
+            use_container_width=True, hide_index=True,
+            column_config={"URL": st.column_config.LinkColumn("URL")},
+        )
