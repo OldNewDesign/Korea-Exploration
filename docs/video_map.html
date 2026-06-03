@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><title>My Video Guide — Map</title><meta name="theme-color" content="#c8472f"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,500&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{--paper:#f7f1e6;--paper2:#fdfaf3;--ink:#211d18;--ink-soft:#5c544a;--line:#e2d8c6;--persimmon:#c8472f;--serif:'Fraunces',Georgia,serif;--sans:'Hanken Grotesk',system-ui,sans-serif}
+  *{box-sizing:border-box}html,body{margin:0;height:100%}
+  body{font-family:var(--sans);color:var(--ink);background:var(--paper)}
+  header{position:fixed;top:0;left:0;right:0;z-index:1000;background:var(--paper2);
+    border-bottom:1.5px solid var(--line);padding:12px 18px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  header h1{font-family:var(--serif);font-weight:600;font-size:1.25rem;margin:0}
+  header .count{color:var(--ink-soft);font-size:.85rem;font-weight:600}
+  header .links{margin-left:auto;font-size:.85rem}
+  header .links a{color:var(--persimmon);font-weight:700;text-decoration:none}
+  #map{position:absolute;top:52px;left:0;right:0;bottom:0}
+  .leaflet-popup-content{font-family:var(--sans);margin:12px 14px;line-height:1.45}
+  .pop{max-width:260px;font-family:var(--sans);line-height:1.45}
+  .pop-creator{font-weight:800;font-size:.95rem}
+  .pop-creator .at{color:var(--persimmon)}
+  .pop-topic{display:inline-block;font-size:.62rem;font-weight:800;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--ink-soft);background:#efe7d6;border-radius:6px;padding:2px 7px;margin:5px 0}
+  .pop-sum{font-size:.84rem;color:var(--ink);margin:5px 0}
+  .pop-loc{font-size:.76rem;color:var(--ink-soft);margin:4px 0}
+  .pop-links{margin-top:7px;display:flex;gap:10px;font-size:.8rem;font-weight:700}
+  .pop-links a{text-decoration:none;color:var(--persimmon)}
+  .pop-links a.map{color:#3f6b5c}
+  .legend{background:var(--paper2);border:1.5px solid var(--line);border-radius:10px;padding:8px 10px;margin:10px;
+    font-size:.76rem;line-height:1.7;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+  .legend .row{display:flex;align-items:center;gap:7px}
+  .legend .dot{width:11px;height:11px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px #ccc}
+  .empty{position:absolute;top:50%;left:0;right:0;text-align:center;color:var(--ink-soft);font-family:var(--serif);font-size:1.1rem;padding:0 20px}
+</style>
+</head><body><header><h1>My Video Guide — Map</h1><span class="count">0 mapped</span><span class="links"><a href="index.html">&larr; Back to guide</a></span></header><div id="map"></div><script>var DATA = [];var COLORS = {"ig": "#c8472f", "tt": "#1f8f8a", "yt": "#cf2e2e", "fb": "#2f5fa8", "xx": "#1c1c1c", "rd": "#cf5a2e", "other": "#3f6b5c"};
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function gmap(loc){return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(loc);}
+function popup(d){
+  var links='<a href="'+esc(d.url)+'" target="_blank" rel="noopener">Watch &rarr;</a>'
+          + '<a class="map" href="'+gmap(d.location)+'" target="_blank" rel="noopener">Google Maps</a>';
+  return '<div class="pop"><div class="pop-creator"><span class="at">@</span>'+esc(d.creator)+'</div>'
+    + '<span class="pop-topic">'+esc(d.topic)+'</span>'
+    + (d.summary?'<div class="pop-sum">'+esc(d.summary)+'</div>':'')
+    + '<div class="pop-loc">'+esc(d.location)+'</div>'
+    + '<div class="pop-links">'+links+'</div></div>';
+}
+function legendHTML(used){
+  var h=''; Object.keys(used).forEach(function(p){
+    h+='<div class="row"><span class="dot" style="background:'+used[p]+'"></span>'+esc(p)+'</div>';
+  }); return h;
+}
+var map = L.map('map');L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(map);if(!DATA.length){document.body.insertAdjacentHTML('beforeend','<div class=\"empty\">No mapped locations yet.</div>');map.setView([20,0],2);} else {var markers=[], used={};DATA.forEach(function(d){var color = COLORS[d.cls] || COLORS.other; used[d.platform]=color;var m = L.circleMarker([d.lat,d.lng],{radius:8,weight:2,color:'#fff',fillColor:color,fillOpacity:.95});m.bindPopup(popup(d),{maxWidth:280}); m.addTo(map); markers.push(m);});map.fitBounds(L.featureGroup(markers).getBounds().pad(0.15));var legend = L.control({position:'bottomright'});legend.onAdd = function(){ var div=L.DomUtil.create('div','legend'); div.innerHTML=legendHTML(used); return div; };legend.addTo(map);}</script></body></html>
