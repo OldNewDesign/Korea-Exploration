@@ -13,6 +13,7 @@ DB_PATH      = OUTPUT_DIR / "video_intel.db"
 EXCEL_PATH   = OUTPUT_DIR / "video_library.xlsx"
 GUIDE_PATH   = OUTPUT_DIR / "video_guide.html"
 MAP_PATH     = OUTPUT_DIR / "video_map.html"
+SHARE_DIR    = BASE_DIR / "docs"   # ready to publish via GitHub Pages
 
 # ---- geocoding ------------------------------------------------------------
 # Google Geocoding is used when GOOGLE_MAPS_API_KEY is set (better with messy /

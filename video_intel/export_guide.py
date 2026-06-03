@@ -117,7 +117,7 @@ def build_controls_and_content(rows):
     )
 
 
-def build_guide(rows, title=None):
+def build_guide(rows, title=None, map_href="video_map.html"):
     title = title or config.GUIDE_TITLE
     ig = sum(1 for v in rows if v.get("platform") == "Instagram")
     tt = sum(1 for v in rows if v.get("platform") == "TikTok")
@@ -128,7 +128,7 @@ def build_guide(rows, title=None):
         stat += (' + ' if ig else ' \u00b7 ') + f'<span class="tt"><b>{tt}</b> TikTok</span>'
     body = build_controls_and_content(rows)
     map_link = (
-        '<p style="margin:14px 0 0"><a href="video_map.html" '
+        '<p style="margin:14px 0 0"><a href="' + esc(map_href) + '" '
         'style="display:inline-flex;align-items:center;gap:7px;background:#c8472f;color:#fff;'
         'font-family:inherit;font-weight:700;font-size:.9rem;text-decoration:none;'
         'padding:9px 18px;border-radius:999px">' + _pin(15) + 'View map \u2192</a></p>'
@@ -149,9 +149,10 @@ def build_guide(rows, title=None):
     )
 
 
-def build(path=None, title=None):
+def build(path=None, title=None, rows=None, map_href="video_map.html"):
     path = str(path or config.GUIDE_PATH)
-    html_doc = build_guide(store.all_videos(), title)
+    data = store.all_videos() if rows is None else rows
+    html_doc = build_guide(data, title, map_href)
     with open(path, "w", encoding="utf-8") as f:
         f.write(html_doc)
     return path

@@ -69,17 +69,17 @@ def _head(title, fonts, extra=""):
             + fonts + extra + _STYLE + '</head>')
 
 
-def _header_bar(title, count):
+def _header_bar(title, count, guide_href="video_guide.html"):
     return ('<header><h1>' + html.escape(title) + '</h1><span class="count">'
             + str(count) + ' mapped</span>'
-            '<span class="links"><a href="video_guide.html">&larr; Back to guide</a></span></header>')
+            '<span class="links"><a href="' + html.escape(guide_href) + '">&larr; Back to guide</a></span></header>')
 
 
-def _leaflet_doc(rows, title, fonts):
+def _leaflet_doc(rows, title, fonts, guide_href="video_guide.html"):
     extra = ('<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>'
              '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>')
     body = (
-        '<body>' + _header_bar(title, len(rows)) + '<div id="map"></div><script>'
+        '<body>' + _header_bar(title, len(rows), guide_href) + '<div id="map"></div><script>'
         'var DATA = ' + json.dumps(rows) + ';'
         'var COLORS = ' + json.dumps(PLATFORM_COLORS) + ';'
         + _HELPERS +
@@ -106,11 +106,11 @@ def _leaflet_doc(rows, title, fonts):
     return _head(title, fonts, extra) + body
 
 
-def _google_doc(rows, title, fonts, key):
+def _google_doc(rows, title, fonts, key, guide_href="video_guide.html"):
     # NOTE: the Maps JS key is embedded in this local HTML file. Restrict it in
     # the Google Cloud console (API + quota limits) before sharing the file.
     body = (
-        '<body>' + _header_bar(title, len(rows)) + '<div id="map"></div><script>'
+        '<body>' + _header_bar(title, len(rows), guide_href) + '<div id="map"></div><script>'
         'var DATA = ' + json.dumps(rows) + ';'
         'var COLORS = ' + json.dumps(PLATFORM_COLORS) + ';'
         + _HELPERS +
@@ -147,9 +147,9 @@ def _google_doc(rows, title, fonts, key):
     return _head(title, fonts) + body
 
 
-def _gather():
+def _gather(videos=None):
     rows = []
-    for v in store.all_videos():
+    for v in (store.all_videos() if videos is None else videos):
         lat, lng = v.get("lat"), v.get("lng")
         if lat in (None, "") or lng in (None, ""):
             continue
@@ -166,17 +166,18 @@ def _gather():
     return rows
 
 
-def build(path=None, title=None):
+def build(path=None, title=None, rows=None, guide_href="video_guide.html", force_osm=False):
     from .guide_assets import FONTS
     path = str(path or config.MAP_PATH)
     title = title or (config.GUIDE_TITLE + " \u2014 Map")
-    rows = _gather()
+    if rows is None:
+        rows = _gather()
 
-    if config.use_google_map() and config.GOOGLE_MAPS_API_KEY:
-        doc = _google_doc(rows, title, FONTS, config.GOOGLE_MAPS_API_KEY)
+    if (not force_osm) and config.use_google_map() and config.GOOGLE_MAPS_API_KEY:
+        doc = _google_doc(rows, title, FONTS, config.GOOGLE_MAPS_API_KEY, guide_href)
         provider = "google"
     else:
-        doc = _leaflet_doc(rows, title, FONTS)
+        doc = _leaflet_doc(rows, title, FONTS, guide_href)
         provider = "osm"
 
     with open(path, "w", encoding="utf-8") as f:

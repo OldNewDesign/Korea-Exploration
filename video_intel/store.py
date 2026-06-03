@@ -43,14 +43,31 @@ def init_db():
         CREATE TABLE IF NOT EXISTS geocache(
             query TEXT PRIMARY KEY, lat REAL, lng REAL, display TEXT, ts TEXT
         )""")
-    # migrate older DBs that predate lat/lng
+    # migrate older DBs that predate lat/lng/shared
     have = {r["name"] for r in con.execute("PRAGMA table_info(videos)")}
     if "lat" not in have:
         con.execute("ALTER TABLE videos ADD COLUMN lat REAL")
     if "lng" not in have:
         con.execute("ALTER TABLE videos ADD COLUMN lng REAL")
+    if "shared" not in have:
+        con.execute("ALTER TABLE videos ADD COLUMN shared INTEGER DEFAULT 0")
     con.commit()
     con.close()
+
+
+def set_shared(url, value):
+    con = connect()
+    con.execute("UPDATE videos SET shared=? WHERE url=?", (1 if value else 0, url))
+    con.commit()
+    con.close()
+
+
+def shared_videos():
+    con = connect()
+    rows = [dict(r) for r in con.execute(
+        "SELECT * FROM videos WHERE shared=1 ORDER BY topic, id")]
+    con.close()
+    return rows
 
 
 def update_coords(url, lat, lng):
