@@ -97,6 +97,8 @@ def _leaflet_doc(rows, title, fonts, guide_href="video_guide.html"):
         "m.bindPopup(popup(d),{maxWidth:280}); m.addTo(map); markers.push(m);"
         "});"
         "map.fitBounds(L.featureGroup(markers).getBounds().pad(0.15));"
+        "setTimeout(function(){map.invalidateSize();},250);"
+        "window.addEventListener('resize',function(){map.invalidateSize();});"
         "var legend = L.control({position:'bottomright'});"
         "legend.onAdd = function(){ var div=L.DomUtil.create('div','legend'); div.innerHTML=legendHTML(used); return div; };"
         "legend.addTo(map);"
